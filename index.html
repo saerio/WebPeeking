@@ -71,7 +71,7 @@
                 <input type="text" id="peer-id" placeholder="Enter peer ID" maxlength="4">
                 <button id="connect-btn">Connect</button>
             </div>
-            <button id="share-btn" disabled>Share Camera</button>
+            <button id="share-btn">Share Camera</button>
             <button id="stop-btn" disabled>Stop Sharing</button>
         </div>
         <video id="camera-feed" autoplay playsinline></video>
@@ -83,7 +83,6 @@
     </footer>
 
     <script>
-        // Generate a random 4-character ID
         function generateShortId() {
             return Math.random().toString(36).substring(2, 6).toUpperCase();
         }
@@ -91,17 +90,22 @@
         let peer = new Peer(generateShortId());
         let currentCall = null;
         let localStream = null;
-        let connectedPeerId = null;
 
         peer.on('open', (id) => {
             document.getElementById('my-id').textContent = id;
         });
 
         peer.on('call', async (call) => {
-            // Only accept calls from the peer we're connected to
-            if (call.peer === connectedPeerId) {
-                handleStream(call);
-                call.answer(); // Answer without sending our stream
+            const acceptCall = confirm('Accept incoming video call?');
+            if (acceptCall) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    call.answer(stream);
+                    handleStream(call);
+                } catch (err) {
+                    document.getElementById('error-message').textContent = 
+                        'Error accessing camera: ' + err.message;
+                }
             }
         });
 
@@ -111,21 +115,22 @@
                 document.getElementById('error-message').textContent = 'ID must be 4 characters';
                 return;
             }
-
-            connectedPeerId = peerId;
-            document.getElementById('share-btn').disabled = false;
-            document.getElementById('error-message').textContent = 'Connected! Click Share Camera to start sharing.';
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const call = peer.call(peerId, stream);
+                handleStream(call);
+            } catch (err) {
+                document.getElementById('error-message').textContent = 
+                    'Error accessing camera: ' + err.message;
+            }
         });
 
         document.getElementById('share-btn').addEventListener('click', async () => {
-            if (!connectedPeerId) return;
-            
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                const call = peer.call(connectedPeerId, localStream);
+                document.getElementById('camera-feed').srcObject = localStream;
                 document.getElementById('share-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
-                document.getElementById('camera-feed').srcObject = localStream;
             } catch (err) {
                 document.getElementById('error-message').textContent = 
                     'Error accessing camera: ' + err.message;
@@ -142,7 +147,6 @@
             if (currentCall) {
                 currentCall.close();
             }
-            connectedPeerId = null;
         });
 
         function handleStream(call) {
