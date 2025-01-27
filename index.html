@@ -138,7 +138,8 @@
         let currentCall = null;
         let localStream = null;
         let dataConnection = null;
-        let remoteStream = null;  // Add this new variable
+        let remoteStream = null;
+        let activeConnections = new Set(); // Track all active connections
 
         peer.on('open', (id) => {
             document.getElementById('my-id').textContent = id;
@@ -146,7 +147,14 @@
 
         peer.on('connection', (conn) => {
             dataConnection = conn;
+            activeConnections.add(conn.peer);
             setupDataConnection();
+        });
+
+        // Add disconnection handler
+        peer.on('disconnected', () => {
+            handleCallEnded();
+            peer.reconnect();
         });
 
         function setupDataConnection() {
@@ -156,6 +164,16 @@
                 } else if (data.type === 'call-ended') {
                     handleCallEnded();
                 }
+            });
+
+            dataConnection.on('close', () => {
+                activeConnections.delete(dataConnection.peer);
+                handleCallEnded();
+            });
+
+            dataConnection.on('error', () => {
+                activeConnections.delete(dataConnection.peer);
+                handleCallEnded();
             });
         }
 
@@ -167,15 +185,33 @@
         }
 
         function handleCallEnded() {
+            // Stop all active connections
+            activeConnections.forEach(peerId => {
+                const conns = peer.connections[peerId] || [];
+                conns.forEach(conn => conn.close());
+            });
+            activeConnections.clear();
+
             if (currentCall) {
                 currentCall.close();
             }
             if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
+                localStream.getTracks().forEach(track => {
+                    track.stop();
+                    track.enabled = false;
+                });
             }
+            if (remoteStream) {
+                remoteStream.getTracks().forEach(track => {
+                    track.stop();
+                    track.enabled = false;
+                });
+            }
+
             document.getElementById('camera-feed').srcObject = null;
             document.getElementById('camera-switch').checked = false;
-            document.getElementById('error-message').textContent = 'Call ended by peer';
+            document.getElementById('error-message').textContent = 'Call ended';
+            
             currentCall = null;
             localStream = null;
             remoteStream = null;
@@ -238,12 +274,26 @@
         });
 
         function handleStream(call) {
+            if (currentCall) {
+                // If there's already a call, end it
+                handleCallEnded();
+            }
+
             currentCall = call;
+            activeConnections.add(call.peer);
+
             call.on('stream', (stream) => {
                 remoteStream = stream;
                 document.getElementById('camera-feed').srcObject = remoteStream;
             });
+
             call.on('close', () => {
+                activeConnections.delete(call.peer);
+                handleCallEnded();
+            });
+
+            call.on('error', () => {
+                activeConnections.delete(call.peer);
                 handleCallEnded();
             });
         }
