@@ -32,27 +32,45 @@
             bottom: 0;
             width: 100%;
         }
+        #camera-feed {
+            width: 100%;
+            max-width: 640px;
+            margin: 20px auto;
+            display: block;
+        }
+        .error-message {
+            color: red;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
     <header>
-        <h1>Welcome to My Website</h1>
+        <h1>Camera Feed</h1>
     </header>
 
     <main>
-        <h2>About</h2>
-        <p>This is a simple website created with HTML and CSS. Feel free to customize it according to your needs.</p>
-        
-        <h2>Features</h2>
-        <ul>
-            <li>Responsive design</li>
-            <li>Clean and simple layout</li>
-            <li>Easy to modify</li>
-        </ul>
+        <video id="camera-feed" autoplay playsinline></video>
+        <p id="error-message" class="error-message"></p>
     </main>
 
     <footer>
-        <p>&copy; 2024 Simple Website. All rights reserved.</p>
+        <p>&copy; 2024 Orbinuity. All rights reserved.</p>
     </footer>
+
+    <script>
+        async function startCamera() {
+            try {
+                const video = document.getElementById('camera-feed');
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+            } catch (err) {
+                document.getElementById('error-message').textContent = 
+                    'Error accessing camera: ' + err.message;
+            }
+        }
+
+        startCamera();
+    </script>
 </body>
 </html>
