@@ -4,7 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple Website</title>
+    <title>Web Peeking</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -42,14 +43,37 @@
             color: red;
             text-align: center;
         }
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        #peer-id {
+            padding: 5px;
+            margin: 5px;
+        }
+        button {
+            padding: 8px 16px;
+            margin: 5px;
+        }
     </style>
 </head>
 <body>
     <header>
-        <h1>Camera Feed</h1>
+        <h1>Web Peeking</h1>
     </header>
 
     <main>
+        <div class="controls">
+            <div>
+                Your ID: <span id="my-id">Connecting...</span>
+            </div>
+            <div>
+                <input type="text" id="peer-id" placeholder="Enter peer ID to connect">
+                <button id="connect-btn">Connect</button>
+            </div>
+            <button id="share-btn">Share Camera</button>
+            <button id="stop-btn" disabled>Stop Sharing</button>
+        </div>
         <video id="camera-feed" autoplay playsinline></video>
         <p id="error-message" class="error-message"></p>
     </main>
@@ -59,18 +83,73 @@
     </footer>
 
     <script>
-        async function startCamera() {
+        let peer = new Peer();
+        let currentCall = null;
+        let localStream = null;
+
+        peer.on('open', (id) => {
+            document.getElementById('my-id').textContent = id;
+        });
+
+        peer.on('call', async (call) => {
+            const acceptCall = confirm('Accept incoming video call?');
+            if (acceptCall) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    call.answer(stream);
+                    handleStream(call);
+                } catch (err) {
+                    document.getElementById('error-message').textContent = 
+                        'Error accessing camera: ' + err.message;
+                }
+            }
+        });
+
+        document.getElementById('connect-btn').addEventListener('click', async () => {
+            const peerId = document.getElementById('peer-id').value;
             try {
-                const video = document.getElementById('camera-feed');
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                video.srcObject = stream;
+                const call = peer.call(peerId, stream);
+                handleStream(call);
             } catch (err) {
                 document.getElementById('error-message').textContent = 
                     'Error accessing camera: ' + err.message;
             }
-        }
+        });
 
-        startCamera();
+        document.getElementById('share-btn').addEventListener('click', async () => {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                document.getElementById('camera-feed').srcObject = localStream;
+                document.getElementById('share-btn').disabled = true;
+                document.getElementById('stop-btn').disabled = false;
+            } catch (err) {
+                document.getElementById('error-message').textContent = 
+                    'Error accessing camera: ' + err.message;
+            }
+        });
+
+        document.getElementById('stop-btn').addEventListener('click', () => {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                document.getElementById('camera-feed').srcObject = null;
+                document.getElementById('share-btn').disabled = false;
+                document.getElementById('stop-btn').disabled = true;
+            }
+            if (currentCall) {
+                currentCall.close();
+            }
+        });
+
+        function handleStream(call) {
+            currentCall = call;
+            call.on('stream', (remoteStream) => {
+                document.getElementById('camera-feed').srcObject = remoteStream;
+            });
+            call.on('close', () => {
+                document.getElementById('camera-feed').srcObject = null;
+            });
+        }
     </script>
 </body>
 </html>
