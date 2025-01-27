@@ -136,10 +136,47 @@
         let peer = new Peer(generateShortId());
         let currentCall = null;
         let localStream = null;
+        let dataConnection = null;
 
         peer.on('open', (id) => {
             document.getElementById('my-id').textContent = id;
         });
+
+        peer.on('connection', (conn) => {
+            dataConnection = conn;
+            setupDataConnection();
+        });
+
+        function setupDataConnection() {
+            dataConnection.on('data', (data) => {
+                if (data.type === 'camera-state') {
+                    handleRemoteCameraState(data.enabled);
+                } else if (data.type === 'call-ended') {
+                    handleCallEnded();
+                }
+            });
+        }
+
+        function handleRemoteCameraState(enabled) {
+            const videoTrack = document.getElementById('camera-feed').srcObject?.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.enabled = enabled;
+            }
+        }
+
+        function handleCallEnded() {
+            if (currentCall) {
+                currentCall.close();
+            }
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+            }
+            document.getElementById('camera-feed').srcObject = null;
+            document.getElementById('camera-switch').checked = false;
+            document.getElementById('error-message').textContent = 'Call ended by peer';
+            currentCall = null;
+            localStream = null;
+        }
 
         peer.on('call', async (call) => {
             const acceptCall = confirm('Accept incoming video call?');
@@ -149,6 +186,8 @@
                     call.answer(stream);
                     handleStream(call);
                     document.getElementById('camera-switch').checked = true;
+                    dataConnection = peer.connect(call.peer);
+                    setupDataConnection();
                 } catch (err) {
                     document.getElementById('error-message').textContent = 
                         'Error accessing camera: ' + err.message;
@@ -167,6 +206,8 @@
                 const call = peer.call(peerId, stream);
                 handleStream(call);
                 document.getElementById('camera-switch').checked = true;
+                dataConnection = peer.connect(peerId);
+                setupDataConnection();
             } catch (err) {
                 document.getElementById('error-message').textContent = 
                     'Error accessing camera: ' + err.message;
@@ -176,8 +217,15 @@
         document.getElementById('camera-switch').addEventListener('change', async function() {
             if (this.checked) {
                 try {
-                    localStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                    document.getElementById('camera-feed').srcObject = localStream;
+                    if (!localStream) {
+                        localStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                        document.getElementById('camera-feed').srcObject = localStream;
+                    } else {
+                        localStream.getVideoTracks()[0].enabled = true;
+                    }
+                    if (dataConnection) {
+                        dataConnection.send({ type: 'camera-state', enabled: true });
+                    }
                 } catch (err) {
                     document.getElementById('error-message').textContent = 
                         'Error accessing camera: ' + err.message;
@@ -185,22 +233,19 @@
                 }
             } else {
                 if (localStream) {
-                    localStream.getTracks().forEach(track => track.stop());
-                    document.getElementById('camera-feed').srcObject = null;
+                    localStream.getVideoTracks()[0].enabled = false;
+                    if (dataConnection) {
+                        dataConnection.send({ type: 'camera-state', enabled: false });
+                    }
                 }
             }
         });
 
         document.getElementById('stop-call-btn').addEventListener('click', () => {
-            if (currentCall) {
-                currentCall.close();
+            if (dataConnection) {
+                dataConnection.send({ type: 'call-ended' });
             }
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-                document.getElementById('camera-feed').srcObject = null;
-            }
-            document.getElementById('camera-switch').checked = false;
-            document.getElementById('error-message').textContent = 'Call ended';
+            handleCallEnded();
         });
 
         function handleStream(call) {
@@ -209,7 +254,7 @@
                 document.getElementById('camera-feed').srcObject = remoteStream;
             });
             call.on('close', () => {
-                document.getElementById('camera-feed').srcObject = null;
+                handleCallEnded();
             });
         }
     </script>
