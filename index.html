@@ -137,6 +137,7 @@
         let currentCall = null;
         let localStream = null;
         let dataConnection = null;
+        let remoteStream = null;  // Add this new variable
 
         peer.on('open', (id) => {
             document.getElementById('my-id').textContent = id;
@@ -158,9 +159,9 @@
         }
 
         function handleRemoteCameraState(enabled) {
-            const videoTrack = document.getElementById('camera-feed').srcObject?.getVideoTracks()[0];
-            if (videoTrack) {
-                videoTrack.enabled = enabled;
+            const remoteVideoTrack = remoteStream?.getVideoTracks()[0];
+            if (remoteVideoTrack) {
+                remoteVideoTrack.enabled = enabled;
             }
         }
 
@@ -176,14 +177,16 @@
             document.getElementById('error-message').textContent = 'Call ended by peer';
             currentCall = null;
             localStream = null;
+            remoteStream = null;
+            dataConnection = null;
         }
 
         peer.on('call', async (call) => {
             const acceptCall = confirm('Accept incoming video call?');
             if (acceptCall) {
                 try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                    call.answer(stream);
+                    localStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    call.answer(localStream);
                     handleStream(call);
                     document.getElementById('camera-switch').checked = true;
                     dataConnection = peer.connect(call.peer);
@@ -202,8 +205,8 @@
                 return;
             }
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                const call = peer.call(peerId, stream);
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const call = peer.call(peerId, localStream);
                 handleStream(call);
                 document.getElementById('camera-switch').checked = true;
                 dataConnection = peer.connect(peerId);
@@ -215,28 +218,13 @@
         });
 
         document.getElementById('camera-switch').addEventListener('change', async function() {
-            if (this.checked) {
-                try {
-                    if (!localStream) {
-                        localStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                        document.getElementById('camera-feed').srcObject = localStream;
-                    } else {
-                        localStream.getVideoTracks()[0].enabled = true;
-                    }
-                    if (dataConnection) {
-                        dataConnection.send({ type: 'camera-state', enabled: true });
-                    }
-                } catch (err) {
-                    document.getElementById('error-message').textContent = 
-                        'Error accessing camera: ' + err.message;
-                    this.checked = false;
-                }
-            } else {
-                if (localStream) {
-                    localStream.getVideoTracks()[0].enabled = false;
-                    if (dataConnection) {
-                        dataConnection.send({ type: 'camera-state', enabled: false });
-                    }
+            if (!localStream) return;
+            
+            const videoTrack = localStream.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.enabled = this.checked;
+                if (dataConnection) {
+                    dataConnection.send({ type: 'camera-state', enabled: this.checked });
                 }
             }
         });
@@ -250,7 +238,8 @@
 
         function handleStream(call) {
             currentCall = call;
-            call.on('stream', (remoteStream) => {
+            call.on('stream', (stream) => {
+                remoteStream = stream;
                 document.getElementById('camera-feed').srcObject = remoteStream;
             });
             call.on('close', () => {
