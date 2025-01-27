@@ -55,6 +55,46 @@
             padding: 8px 16px;
             margin: 5px;
         }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+            margin: 5px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #2196F3;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
     </style>
 </head>
 <body>
@@ -71,8 +111,14 @@
                 <input type="text" id="peer-id" placeholder="Enter peer ID" maxlength="4">
                 <button id="connect-btn">Connect</button>
             </div>
-            <button id="share-btn">Share Camera</button>
-            <button id="stop-btn" disabled>Stop Sharing</button>
+            <div>
+                <label class="switch">
+                    <input type="checkbox" id="camera-switch">
+                    <span class="slider"></span>
+                </label>
+                <span>Camera</span>
+                <button id="stop-call-btn">Stop Call</button>
+            </div>
         </div>
         <video id="camera-feed" autoplay playsinline></video>
         <p id="error-message" class="error-message"></p>
@@ -102,6 +148,7 @@
                     const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                     call.answer(stream);
                     handleStream(call);
+                    document.getElementById('camera-switch').checked = true;
                 } catch (err) {
                     document.getElementById('error-message').textContent = 
                         'Error accessing camera: ' + err.message;
@@ -119,34 +166,41 @@
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 const call = peer.call(peerId, stream);
                 handleStream(call);
+                document.getElementById('camera-switch').checked = true;
             } catch (err) {
                 document.getElementById('error-message').textContent = 
                     'Error accessing camera: ' + err.message;
             }
         });
 
-        document.getElementById('share-btn').addEventListener('click', async () => {
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                document.getElementById('camera-feed').srcObject = localStream;
-                document.getElementById('share-btn').disabled = true;
-                document.getElementById('stop-btn').disabled = false;
-            } catch (err) {
-                document.getElementById('error-message').textContent = 
-                    'Error accessing camera: ' + err.message;
+        document.getElementById('camera-switch').addEventListener('change', async function() {
+            if (this.checked) {
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    document.getElementById('camera-feed').srcObject = localStream;
+                } catch (err) {
+                    document.getElementById('error-message').textContent = 
+                        'Error accessing camera: ' + err.message;
+                    this.checked = false;
+                }
+            } else {
+                if (localStream) {
+                    localStream.getTracks().forEach(track => track.stop());
+                    document.getElementById('camera-feed').srcObject = null;
+                }
             }
         });
 
-        document.getElementById('stop-btn').addEventListener('click', () => {
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-                document.getElementById('camera-feed').srcObject = null;
-                document.getElementById('share-btn').disabled = false;
-                document.getElementById('stop-btn').disabled = true;
-            }
+        document.getElementById('stop-call-btn').addEventListener('click', () => {
             if (currentCall) {
                 currentCall.close();
             }
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                document.getElementById('camera-feed').srcObject = null;
+            }
+            document.getElementById('camera-switch').checked = false;
+            document.getElementById('error-message').textContent = 'Call ended';
         });
 
         function handleStream(call) {
