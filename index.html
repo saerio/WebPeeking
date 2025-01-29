@@ -23,6 +23,7 @@
             max-width: 800px;
             margin: 20px auto;
             padding: 0 20px;
+            text-align: center;
         }
         footer {
             background-color: #333;
@@ -34,7 +35,7 @@
             width: 100%;
             font-size: 0.8rem;
         }
-        #camera-feed {
+        #camera-feed, #self-feed {
             width: 100%;
             max-width: 640px;
             margin: 20px auto;
@@ -96,6 +97,16 @@
         input:checked + .slider:before {
             transform: translateX(26px);
         }
+        #self-feed {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            width: 150px;
+            height: auto;
+            border: 2px solid white;
+            border-radius: 8px;
+            box-shadow: 0px 0px 5px rgba(0,0,0,0.5);
+        }
     </style>
 </head>
 <body>
@@ -109,7 +120,7 @@
                 Your ID: <span id="my-id">Connecting...</span>
             </div>
             <div>
-                <input type="text" id="peer-id" placeholder="Enter peer ID" maxlength="4">
+                <input type="text" id="peer-id" placeholder="Enter peer ID" maxlength="8">
                 <button id="connect-btn">Connect</button>
             </div>
             <div>
@@ -118,20 +129,11 @@
                     <span class="slider"></span>
                 </label>
                 <span>Camera</span>
-                <label class="switch">
-                    <input type="checkbox" id="mic-switch">
-                    <span class="slider"></span>
-                </label>
-                <span>Mic</span>
-                <label class="switch">
-                    <input type="checkbox" id="speaker-switch" checked>
-                    <span class="slider"></span>
-                </label>
-                <span>Speaker</span>
                 <button id="stop-call-btn">Stop Call</button>
             </div>
         </div>
         <video id="camera-feed" autoplay playsinline></video>
+        <video id="self-feed" autoplay muted playsinline></video>
         <p id="error-message" class="error-message"></p>
     </main>
 
@@ -140,16 +142,16 @@
     </footer>
 
     <script>
-        function generateShortId() {
-            return Math.random().toString(36).substring(2, 6).toUpperCase();
+        function generateLongId() {
+            return Math.random().toString(36).substring(2, 10).toUpperCase();
         }
 
-        let peer = new Peer(generateShortId());
+        let peer = new Peer(generateLongId());
         let currentCall = null;
         let localStream = null;
         let dataConnection = null;
         let remoteStream = null;
-        let activeConnections = new Set(); // Track all active connections
+        let activeConnections = new Set();
 
         peer.on('open', (id) => {
             document.getElementById('my-id').textContent = id;
@@ -161,7 +163,6 @@
             setupDataConnection();
         });
 
-        // Add disconnection handler
         peer.on('disconnected', () => {
             handleCallEnded();
             peer.reconnect();
@@ -171,8 +172,6 @@
             dataConnection.on('data', (data) => {
                 if (data.type === 'camera-state') {
                     handleRemoteCameraState(data.enabled);
-                } else if (data.type === 'mic-state') {
-                    handleRemoteMicState(data.enabled);
                 } else if (data.type === 'call-ended') {
                     handleCallEnded();
                 }
@@ -196,53 +195,21 @@
             }
         }
 
-        function handleRemoteMicState(enabled) {
-            const remoteAudioTrack = remoteStream?.getAudioTracks()[0];
-            if (remoteAudioTrack) {
-                remoteAudioTrack.enabled = enabled;
-            }
-        }
-
-        async function getLocalStream() {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: true,
-                audio: true
-            });
-            // Start with mic muted
-            stream.getAudioTracks()[0].enabled = false;
-            return stream;
-        }
-
         function handleCallEnded() {
-            // Stop all active connections
             activeConnections.forEach(peerId => {
-                const conns = peer.connections[peerId] || [];
-                conns.forEach(conn => conn.close());
+                (peer.connections[peerId] || []).forEach(conn => conn.close());
             });
             activeConnections.clear();
 
-            if (currentCall) {
-                currentCall.close();
-            }
-            if (localStream) {
-                localStream.getTracks().forEach(track => {
-                    track.stop();
-                    track.enabled = false;
-                });
-            }
-            if (remoteStream) {
-                remoteStream.getTracks().forEach(track => {
-                    track.stop();
-                    track.enabled = false;
-                });
-            }
+            if (currentCall) currentCall.close();
+            if (localStream) localStream.getTracks().forEach(track => track.stop());
+            if (remoteStream) remoteStream.getTracks().forEach(track => track.stop());
 
             document.getElementById('camera-feed').srcObject = null;
+            document.getElementById('self-feed').srcObject = null;
             document.getElementById('camera-switch').checked = false;
-            document.getElementById('mic-switch').checked = false;
-            document.getElementById('speaker-switch').checked = true;
             document.getElementById('error-message').textContent = 'Call ended';
-            
+
             currentCall = null;
             localStream = null;
             remoteStream = null;
@@ -253,99 +220,41 @@
             const acceptCall = confirm('Accept incoming video call?');
             if (acceptCall) {
                 try {
-                    localStream = await getLocalStream();
+                    localStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    document.getElementById('self-feed').srcObject = localStream;
                     call.answer(localStream);
                     handleStream(call);
-                    document.getElementById('camera-switch').checked = true;
-                    document.getElementById('mic-switch').checked = false;
-                    dataConnection = peer.connect(call.peer);
-                    setupDataConnection();
                 } catch (err) {
-                    document.getElementById('error-message').textContent = 
-                        'Error accessing media devices: ' + err.message;
+                    document.getElementById('error-message').textContent = 'Error accessing camera: ' + err.message;
                 }
             }
         });
 
         document.getElementById('connect-btn').addEventListener('click', async () => {
             const peerId = document.getElementById('peer-id').value.toUpperCase();
-            if (peerId.length !== 4) {
-                document.getElementById('error-message').textContent = 'ID must be 4 characters';
+            if (peerId.length !== 8) {
+                document.getElementById('error-message').textContent = 'ID must be 8 characters';
                 return;
             }
             try {
-                localStream = await getLocalStream();
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                document.getElementById('self-feed').srcObject = localStream;
                 const call = peer.call(peerId, localStream);
                 handleStream(call);
-                document.getElementById('camera-switch').checked = true;
-                document.getElementById('mic-switch').checked = false;
-                dataConnection = peer.connect(peerId);
-                setupDataConnection();
             } catch (err) {
-                document.getElementById('error-message').textContent = 
-                    'Error accessing media devices: ' + err.message;
+                document.getElementById('error-message').textContent = 'Error accessing camera: ' + err.message;
             }
-        });
-
-        document.getElementById('camera-switch').addEventListener('change', async function() {
-            if (!localStream) return;
-            
-            const videoTrack = localStream.getVideoTracks()[0];
-            if (videoTrack) {
-                videoTrack.enabled = this.checked;
-                if (dataConnection) {
-                    dataConnection.send({ type: 'camera-state', enabled: this.checked });
-                }
-            }
-        });
-
-        document.getElementById('mic-switch').addEventListener('change', function() {
-            if (!localStream) return;
-            
-            const audioTrack = localStream.getAudioTracks()[0];
-            if (audioTrack) {
-                audioTrack.enabled = this.checked;
-                if (dataConnection) {
-                    dataConnection.send({ type: 'mic-state', enabled: this.checked });
-                }
-            }
-        });
-
-        document.getElementById('speaker-switch').addEventListener('change', function() {
-            const video = document.getElementById('camera-feed');
-            video.muted = !this.checked;
-        });
-
-        document.getElementById('stop-call-btn').addEventListener('click', () => {
-            if (dataConnection) {
-                dataConnection.send({ type: 'call-ended' });
-            }
-            handleCallEnded();
         });
 
         function handleStream(call) {
-            if (currentCall) {
-                // If there's already a call, end it
-                handleCallEnded();
-            }
-
             currentCall = call;
             activeConnections.add(call.peer);
-
             call.on('stream', (stream) => {
                 remoteStream = stream;
                 document.getElementById('camera-feed').srcObject = remoteStream;
             });
-
-            call.on('close', () => {
-                activeConnections.delete(call.peer);
-                handleCallEnded();
-            });
-
-            call.on('error', () => {
-                activeConnections.delete(call.peer);
-                handleCallEnded();
-            });
+            call.on('close', handleCallEnded);
+            call.on('error', handleCallEnded);
         }
     </script>
 </body>
